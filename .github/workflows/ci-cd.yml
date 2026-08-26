@@ -45,23 +45,13 @@ jobs:
         working-directory: Terraform
         run: terraform fmt -check -recursive
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
       - name: Terraform init
         working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
-        run: terraform init -input=false
+        run: terraform init -backend=false -input=false
 
       - name: Terraform validate
         working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
         run: terraform validate
-
-      - name: Terraform plan
-        working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
-        run: terraform plan -input=false
 
   deploy:
     name: Deploy
@@ -100,6 +90,10 @@ jobs:
       - name: Terraform init
         working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
         run: terraform init -input=false
+
+      - name: Terraform plan
+        working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
+        run: terraform plan -input=false
 
       - name: Terraform apply
         working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}

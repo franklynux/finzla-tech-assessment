@@ -119,23 +119,79 @@ Pull Request -> Validation -> Review -> Merge -> Build -> Push -> Deploy -> Heal
 Pull request checks include:
 
 - Terraform formatting with `terraform fmt -check -recursive`.
-- Terraform validation with `terraform init` and `terraform validate`.
-- Terraform plan for the target environment.
+- Terraform validation with `terraform init -backend=false` and `terraform validate`.
 - Application build/test using `python -m py_compile server.py` and Docker image build.
 - A simple Dockerfile quality check using Hadolint.
 
 Deployment:
 
+- Authenticate to AWS using GitHub OIDC and the `AWS_ROLE_ARN` secret.
+- Run Terraform plan against AWS after merge to `main`.
 - Build the Docker image.
 - Push the `latest` tag to ECR.
 - Deploy the new version with Terraform and force a new ECS deployment so ECS pulls the updated `latest` image.
 - Confirm application health through the ALB `/health` endpoint.
 - Handle unhealthy deployments by failing the workflow when the health check does not pass.
 
-GitHub should authenticate to AWS using OIDC and short-lived credentials. Permanent AWS access keys must not be stored in GitHub secrets.
+GitHub authenticates to AWS with OIDC, so there are no long-lived AWS access keys stored in the repository. The workflow assumes an IAM role whose trust policy is limited to this repository and the `main` branch.
 
-Production deployments use the `production` GitHub Environment. This environment should be configured with required reviewers before deployment jobs can run.
+Production deployment is also tied to the `production` GitHub Environment, which should require reviewer approval before the deploy job can run. That gives two layers of control: AWS only trusts the expected repo and branch, and GitHub only lets approved production deployments continue.
 
-GitHub authenticates to AWS using OIDC through an IAM role stored as the `AWS_ROLE_ARN` secret. The AWS IAM role trust policy should restrict access by repository, branch, workflow, and environment claims. This prevents another GitHub repository, a compromised workflow from an untrusted branch, or an individual developer without review approval from freely deploying into production.
+Pull requests can validate the code and Terraform syntax, but they do not receive AWS credentials and cannot push images or deploy infrastructure. A different repository, an unapproved branch, or a developer working outside the protected deployment flow would not match the IAM role trust policy or pass the GitHub environment approval step.
 
-The deployment job runs only after changes are merged to `main`. Pull requests can validate and plan, but they cannot push images or deploy infrastructure.
+## Incident Investigation
+
+Scenario: a new release has deployed, GitHub Actions reports success, ECS shows the expected number of tasks running, but customers receive HTTP `503` responses and the ALB reports unhealthy targets.
+
+I would first check the ALB target group health. If the targets are unhealthy, the issue is usually between the load balancer and the ECS task: health check path, container port, security group rules, task startup, or application behavior.
+
+Services and signals to inspect:
+
+- ALB target group health: target status, reason codes, and health check failures.
+- CloudWatch metrics: `UnHealthyHostCount`, `HTTPCode_Target_5XX_Count`, and `TargetResponseTime`.
+- ECS service events: failed deployments, task replacement, or target registration issues.
+- ECS task details: stopped task reasons, container exit codes, and image pull errors.
+- CloudWatch Logs: `/ecs/<service-name>` for application startup and request errors.
+- Security groups: ALB ingress, ECS task ingress from the ALB security group, and task egress.
+
+Possible causes and how I would prove or eliminate them:
+
+- Wrong health check path or response: call `/health` directly through the task if possible, check application logs, and confirm the target group health check path matches the app.
+- Port mismatch: confirm the container listens on `8000`, the task definition exposes `8000`, the ECS service maps `8000`, and the target group points to `8000`.
+- Security group issue: confirm the ECS task security group allows inbound traffic from the ALB security group on port `8000`.
+- Application starts but fails after boot: check CloudWatch Logs for exceptions and ECS task restarts.
+- Bad image or missing image tag: check ECS task events for image pull errors and confirm the expected image exists in ECR.
+
+The safest immediate recovery action is to roll back to the last known good task definition or image tag, then force a new ECS deployment. If rollback is not ready, temporarily revert the application image to the previous working ECR tag and redeploy.
+
+To prevent this reaching customers again, the pipeline should run a post-deployment health check against the ALB and fail the deployment if `/health` does not pass. For production, I would also use immutable image tags, ECS deployment circuit breaker with rollback, and a staged deployment strategy before shifting all traffic.
+
+## Engineering Judgement
+
+### Architecture
+
+I chose ECS Fargate because it fits a small containerized HTTP service without requiring EC2 host management. ECR stores the image, ALB handles public traffic and health checks, ECS runs the container in private subnets, and CloudWatch provides logs, metrics, and alarms.
+
+A reasonable alternative was EC2 with Docker or an Auto Scaling Group. I rejected it because it adds server patching, AMI management, and more operational work than this assessment needs.
+
+### Reliability
+
+If a new deployment starts but fails health checks, the ALB should stop sending traffic to the unhealthy tasks. ECS will try to keep the desired task count running, but users may still see errors if there are not enough healthy old tasks available.
+
+Rollback would use the previous working image tag or task definition revision, then force a new ECS deployment. In production I would enable ECS deployment circuit breaker rollback and avoid relying only on the mutable `latest` tag.
+
+### Cost
+
+The two largest likely cost drivers are NAT gateway usage and ECS Fargate runtime.
+
+To control NAT cost, this design uses one NAT gateway for the assessment. For production, I would consider VPC endpoints for ECR, S3, and CloudWatch Logs to reduce NAT data processing charges.
+
+To control ECS cost, I would right-size CPU and memory, keep desired task count appropriate for traffic, use autoscaling, and separate dev/prod capacity.
+
+### Production Readiness
+
+The three most important improvements before using this for a fintech production platform are:
+
+- Stronger security controls: least-privilege IAM, private VPC endpoints, WAF, secrets management, image vulnerability scanning, and tighter network rules.
+- Safer deployments: immutable image tags, automated rollback, deployment circuit breaker, separate staging environment, and production approval gates.
+- Better observability and resilience: structured logs, dashboards, alert routing, longer retention where required, multi-AZ NAT or VPC endpoints, and tested incident runbooks.
