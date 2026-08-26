@@ -1,5 +1,5 @@
-resource "aws_ecs_cluster" "this"{
-    name = "${var.service_name}-cluster"
+resource "aws_ecs_cluster" "this" {
+  name = "${var.service_name}-cluster"
 }
 
 # IAM Role for task execution (pulls image and writes logs to cloudwatch)

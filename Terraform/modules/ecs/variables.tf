@@ -1,6 +1,6 @@
 variable "service_name" {
-    type = string 
-    default = "Python-HTTP-service"
+  type    = string
+  default = "Python-HTTP-service"
 }
 
 variable "aws_region" {
@@ -28,8 +28,8 @@ variable "container_port" {
 }
 
 variable "target_group_arn" {
-    type = string
-    description = "Target group ARN of ALB"
+  type        = string
+  description = "Target group ARN of ALB"
 }
 
 variable "alb_sg_id" {

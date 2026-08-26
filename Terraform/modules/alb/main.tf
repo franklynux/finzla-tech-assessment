@@ -1,30 +1,31 @@
 # Create Application Load Balncer Security Group
 resource "aws_security_group" "alb_sg" {
-  name = "App-LB-SG"
+  name        = "App-LB-SG"
   description = "Security group for the Application Load Balancer"
-    tags = {
-      Name = "Finzla-Tech"
-    }
+  vpc_id      = var.vpc_id
+  tags = {
+    Name = "Finzla-Tech"
+  }
 }
 
 # Allow inbound HTTP inbound traffic
 resource "aws_security_group_rule" "allow_inbound_http" {
-  type = "ingress"
-  protocol = "tcp"
-  from_port = 80
-  to_port = 80
-  cidr_blocks = ["0.0.0.0/0"]
+  type              = "ingress"
+  protocol          = "tcp"
+  from_port         = 80
+  to_port           = 80
+  cidr_blocks       = ["0.0.0.0/0"]
   security_group_id = aws_security_group.alb_sg.id
 }
 
 # Allow all outbound traffic
 resource "aws_security_group_rule" "allow_all_outbound" {
-    type = "egress"
-    from_port = 0
-    to_port = 0
-    protocol = "-1"  
-    cidr_blocks = ["0.0.0.0/0"]
-    security_group_id = aws_security_group.alb_sg.id
+  type              = "egress"
+  from_port         = 0
+  to_port           = 0
+  protocol          = "-1"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.alb_sg.id
 }
 
 
@@ -47,11 +48,11 @@ resource "aws_lb" "app_lb" {
 
 #Target Group Configuration
 resource "aws_lb_target_group" "alb_tg" {
-  name     ="HTTP-service-TG"
-  port     = 8000
-  protocol = "HTTP"
-  target_type = "instance"
-  vpc_id = var.vpc_id
+  name        = "HTTP-service-TG"
+  port        = 8000
+  protocol    = "HTTP"
+  target_type = "ip"
+  vpc_id      = var.vpc_id
 
   health_check {
     enabled             = true
@@ -63,7 +64,7 @@ resource "aws_lb_target_group" "alb_tg" {
     healthy_threshold   = 2
     unhealthy_threshold = 2
   }
-  depends_on = [aws_lb.app_lb]
+  depends_on           = [aws_lb.app_lb]
   deregistration_delay = 120
 
   tags = {

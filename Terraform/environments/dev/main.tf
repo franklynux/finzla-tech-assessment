@@ -22,3 +22,10 @@ module "ecs" {
   container_image    = "${module.ecr.repository_url}:latest"
   alb_sg_id          = module.alb.alb_sg_id
 }
+
+module "cloudwatch" {
+  source                  = "../../modules/cloudwatch"
+  service_name            = module.ecs.ecs_service_name
+  alb_arn_suffix          = module.alb.alb_arn_suffix
+  target_group_arn_suffix = module.alb.target_group_arn_suffix
+}
