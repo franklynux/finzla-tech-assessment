@@ -135,7 +135,7 @@ Deployment:
 
 GitHub authenticates to AWS with OIDC, so there are no long-lived AWS access keys stored in the repository. The workflow assumes an IAM role whose trust policy is limited to this repository and the `main` branch.
 
-Production deployment is also tied to the `production` GitHub Environment, which should require reviewer approval before the deploy job can run. That gives two layers of control: AWS only trusts the expected repo and branch, and GitHub only lets approved production deployments continue.
+Production deployment is gated by the `production` GitHub Environment, which should require reviewer approval before the deploy job can run. The workflow uses a small approval job first, then runs the AWS deployment job only after that approval passes.
 
 Pull requests can validate the code and Terraform syntax, but they do not receive AWS credentials and cannot push images or deploy infrastructure. A different repository, an unapproved branch, or a developer working outside the protected deployment flow would not match the IAM role trust policy or pass the GitHub environment approval step.
 
